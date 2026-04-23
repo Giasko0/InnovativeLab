@@ -30,9 +30,10 @@ The Groq Vision model fills in the blanks from the detected label + rule.
 Only needed if your professor asks for a concrete example.
 
 Find your nearest:
-- **Glass point**: https://www.wastereduction.gov.hk/en/household/glass-beverage-container-recycling-programme
-- **Battery point**: https://www.epd.gov.hk/epd/misc/battery_recycling/eng/list.html
-- **Food waste point**: https://www.wastecharger.gov.hk/en/home (map on site)
+- **General map / nearby facilities**: https://www.wastereduction.gov.hk/en-hk/one-stop-shop
+- **GREEN@COMMUNITY locator**: https://www.wastereduction.gov.hk/en-hk/waste-reduction-programme/green-at-community
+- **Battery collection points**: https://www.wastereduction.gov.hk/en-hk/waste-reduction-programme/rechargeable-battery-recycling-programme
+- **Food waste points/spots**: https://www.wastereduction.gov.hk/en-hk/waste-reduction-programme/food-waste-recycling-schemes
 
 For the demo itself, just say "find your nearest point at the EPD recycling map" — this is already baked into the rules.
 
@@ -41,6 +42,19 @@ Fill in after a real run:
 - [ ] Latency: Vision → TTS → audio start = ~__ seconds
 - [ ] Test items: plastic bottle ✓ / can ✓ / glass bottle ✓ / etc.
 - [ ] Any detection confusion: e.g. drink carton misread as corrugated carton
+
+Quick table for report:
+
+| Test item | Expected disposal | Model output | Correct (Y/N) | Latency (s) |
+|---|---|---|---|---|
+| Plastic bottle | Plastic recycling bin |  |  |  |
+| Drink can | Metal recycling bin |  |  |  |
+| Glass bottle | Designated glass collection point |  |  |  |
+| Drink carton | Dedicated carton route / GREEN@COMMUNITY |  |  |  |
+| Cigarette butt | General waste bin |  |  |  |
+| Dirty pizza box | General waste bin |  |  |  |
+| Plastic film | General waste bin |  |  |  |
+| Battery | Designated battery collection point |  |  |  |
 
 ### 3. YOLO26n weights path
 Change in `demo.py` main() or set env var:
