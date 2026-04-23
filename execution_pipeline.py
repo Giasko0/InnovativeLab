@@ -16,11 +16,10 @@ import base64
 import json
 import os
 import re
-import time
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import AsyncGenerator, Callable
+from typing import AsyncGenerator
 
 import aiohttp
 import cv2
@@ -57,12 +56,8 @@ class GroqStreamingConfig:
     vision_max_tokens: int = 220
     vision_temperature: float = 0.2
     request_timeout_s: float = 45.0
-    tts_concurrency: int = 1
-    min_tts_interval_s: float = 0.8
-    tts_retries: int = 2
-    max_sentences: int = 8
-    max_sentence_chars: int = 220
-    max_total_chars: int = 1200
+    min_tts_interval_s: float = 0.2
+    max_sentence_chars: int = 180
     min_sentence_chars: int = 6
 
     def resolved_api_key(self) -> str:
@@ -73,22 +68,6 @@ class GroqStreamingConfig:
         if not key:
             raise RuntimeError("Missing Groq API key. Set GROQ_API_KEY or pass api_key in config.")
         return key
-
-
-class RequestPacer:
-    def __init__(self, min_interval_s: float) -> None:
-        self.min_interval_s = max(0.0, float(min_interval_s))
-        self._lock = asyncio.Lock()
-        self._next_allowed = 0.0
-
-    async def wait_turn(self) -> None:
-        async with self._lock:
-            now = time.monotonic()
-            wait_s = self._next_allowed - now
-            if wait_s > 0:
-                await asyncio.sleep(wait_s)
-            self._next_allowed = time.monotonic() + self.min_interval_s
-
 
 def encode_crop_to_data_url(crop: np.ndarray | bytes | str | Path) -> str:
     if isinstance(crop, np.ndarray):
@@ -205,7 +184,6 @@ async def request_tts_wav(
     session: aiohttp.ClientSession,
     sentence: str,
     config: GroqStreamingConfig,
-    pacer: RequestPacer,
 ) -> bytes:
     api_key = config.resolved_api_key()
     url = f"{config.base_url.rstrip('/')}/audio/speech"
@@ -220,28 +198,15 @@ async def request_tts_wav(
         "response_format": "wav",
     }
 
-    attempt = 0
-    while True:
-        await pacer.wait_turn()
-        try:
-            timeout = aiohttp.ClientTimeout(total=config.request_timeout_s)
-            async with session.post(url, headers=headers, json=payload, timeout=timeout) as response:
-                if response.status == 429 and attempt < config.tts_retries:
-                    await asyncio.sleep(1.5 * (attempt + 1))
-                    attempt += 1
-                    continue
-                if response.status >= 400:
-                    body = await response.text()
-                    raise RuntimeError(f"TTS request failed ({response.status}): {body[:600]}")
-                audio = await response.read()
-                if not audio:
-                    raise RuntimeError("TTS request returned empty audio")
-                return audio
-        except (aiohttp.ClientError, asyncio.TimeoutError):
-            if attempt >= config.tts_retries:
-                raise
-            await asyncio.sleep(1.0 * (attempt + 1))
-            attempt += 1
+    timeout = aiohttp.ClientTimeout(total=config.request_timeout_s)
+    async with session.post(url, headers=headers, json=payload, timeout=timeout) as response:
+        if response.status >= 400:
+            body = await response.text()
+            raise RuntimeError(f"TTS request failed ({response.status}): {body[:600]}")
+        audio = await response.read()
+        if not audio:
+            raise RuntimeError("TTS request returned empty audio")
+        return audio
 
 
 async def play_wav_non_blocking(wav_bytes: bytes) -> None:
@@ -259,7 +224,6 @@ async def stream_crop_vision_to_tts(
     *,
     prompt: str,
     config: GroqStreamingConfig | None = None,
-    on_sentence: Callable[[str], None] | None = None,
 ) -> str:
     """
     Run Groq Vision->TTS streaming on one detector crop.
@@ -268,8 +232,6 @@ async def stream_crop_vision_to_tts(
         crop_image: YOLO crop (OpenCV numpy array BGR) or image bytes/path.
         prompt: user prompt sent alongside the crop.
         config: GroqStreamingConfig (API throttling + model settings).
-        on_sentence: optional callback fired when each complete sentence is formed.
-
     Returns:
         Full concatenated model text used for spoken output.
     """
@@ -282,103 +244,24 @@ async def stream_crop_vision_to_tts(
     )
     image_data_url = encode_crop_to_data_url(crop_image)
 
-    sentence_queue: asyncio.Queue[tuple[int, str] | None] = asyncio.Queue()
-    audio_queue: asyncio.Queue[tuple[int, bytes] | None] = asyncio.Queue()
-    pacer = RequestPacer(cfg.min_tts_interval_s)
-    tts_workers = 1
-
-    async def tts_worker() -> None:
-        try:
-            while True:
-                item = await sentence_queue.get()
-                if item is None:
-                    await audio_queue.put(None)
-                    return
-                idx, sentence = item
-                wav = await request_tts_wav(session, sentence, cfg, pacer)
-                await audio_queue.put((idx, wav))
-        except Exception:
-            await audio_queue.put(None)
-            raise
-
-    async def audio_worker() -> None:
-        next_idx = 0
-        pending: dict[int, bytes] = {}
-        while True:
-            item = await audio_queue.get()
-            if item is None:
-                break
-
-            idx, wav_bytes = item
-            pending[idx] = wav_bytes
-            while next_idx in pending:
-                to_play = pending.pop(next_idx)
-                await play_wav_non_blocking(to_play)
-                next_idx += 1
-
     full_text_parts: list[str] = []
-    sent_count = 0
-    total_chars = 0
 
     async with aiohttp.ClientSession() as session:
-        tts_tasks = [asyncio.create_task(tts_worker())]
-        audio_task = asyncio.create_task(audio_worker())
-        try:
-            token_stream = stream_vision_tokens(
-                session,
-                image_data_url=image_data_url,
-                prompt=prompt,
-                config=cfg,
-            )
-            async for sentence in stream_complete_sentences(
-                token_stream,
-                min_chars=cfg.min_sentence_chars,
-            ):
-                if sent_count >= cfg.max_sentences or total_chars >= cfg.max_total_chars:
-                    break
+        token_stream = stream_vision_tokens(
+            session,
+            image_data_url=image_data_url,
+            prompt=prompt,
+            config=cfg,
+        )
+        async for sentence in stream_complete_sentences(token_stream, min_chars=cfg.min_sentence_chars):
+            sentence = sentence[: cfg.max_sentence_chars].strip()
+            if not sentence:
+                continue
 
-                sentence = sentence[: cfg.max_sentence_chars].strip()
-                if not sentence:
-                    continue
+            full_text_parts.append(sentence)
 
-                full_text_parts.append(sentence)
-                total_chars += len(sentence)
-                sent_count += 1
-
-                if on_sentence is not None:
-                    on_sentence(sentence)
-
-                await sentence_queue.put((sent_count - 1, sentence))
-        finally:
-            await sentence_queue.put(None)
-            tts_results = await asyncio.gather(*tts_tasks, return_exceptions=True)
-            tts_error = next((r for r in tts_results if isinstance(r, Exception)), None)
-            if tts_error is not None:
-                audio_task.cancel()
-                await asyncio.gather(audio_task, return_exceptions=True)
-                raise tts_error
-            await audio_task
-
+            wav_bytes = await request_tts_wav(session, sentence, cfg)
+            await play_wav_non_blocking(wav_bytes)
+            if cfg.min_tts_interval_s > 0:
+                await asyncio.sleep(cfg.min_tts_interval_s)
     return " ".join(full_text_parts).strip()
-
-
-async def _example() -> None:
-    # Example: pass crop from detector loop
-    crop = cv2.imread("sample_crop.jpg")
-    if crop is None:
-        raise RuntimeError("sample_crop.jpg not found")
-
-    spoken_text = await stream_crop_vision_to_tts(
-        crop,
-        prompt=(
-            "Identify the item in this crop and explain how to dispose of it in Hong Kong. "
-            "Keep the answer short and practical."
-        ),
-        config=GroqStreamingConfig(),
-    )
-    print(spoken_text)
-
-
-if __name__ == "__main__":
-    load_env_file(Path(__file__).with_name(".env"))
-    asyncio.run(_example())

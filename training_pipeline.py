@@ -13,12 +13,9 @@ Features:
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import json
-import math
 import random
 import shutil
-import threading
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -27,14 +24,12 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from PIL import Image, ImageEnhance, ImageFilter
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from PIL import Image, ImageEnhance
 
 
 ANNOTATIONS_URL = "https://raw.githubusercontent.com/pedropro/TACO/master/data/annotations.json"
 
-# Simplified taxonomy: keep major classes unique, and preserve original TACO labels when practical.
+# Small, demo-friendly taxonomy built around common items a person actually shows to a webcam.
 TARGET_CLASSES = [
     "Clear plastic bottle",
     "Other plastic bottle",
@@ -42,28 +37,25 @@ TARGET_CLASSES = [
     "Food Can",
     "Glass bottle",
     "Drink carton",
-    "Meal carton",
-    "Plastic film",
-    "Other plastic wrapper",
-    "Other plastic",
-    "Plastic bottle cap",
-    "Disposable plastic cup",
     "Corrugated carton",
     "Paper bag",
-    "Paper cup",
+    "Plastic film",
+    "Other plastic",
+    "Disposable plastic cup",
     "Food waste",
+    "Cigarette",
+    "Battery",
     "some sort of general waste item",
 ]
 
 CLASS_REMAP = {
     "Aluminium foil": "some sort of general waste item",
-    "Battery": "some sort of general waste item",
+    "Battery": "Battery",
     "Aluminium blister pack": "some sort of general waste item",
     "Carded blister pack": "some sort of general waste item",
     "Other plastic bottle": "Other plastic bottle",
     "Clear plastic bottle": "Clear plastic bottle",
     "Glass bottle": "Glass bottle",
-    "Plastic bottle cap": "Plastic bottle cap",
     "Metal bottle cap": "some sort of general waste item",
     "Broken glass": "some sort of general waste item",
     "Food Can": "Food Can",
@@ -74,31 +66,31 @@ CLASS_REMAP = {
     "Egg carton": "Corrugated carton",
     "Drink carton": "Drink carton",
     "Corrugated carton": "Corrugated carton",
-    "Meal carton": "Meal carton",
-    "Pizza box": "Meal carton",
-    "Paper cup": "Paper cup",
+    "Meal carton": "some sort of general waste item",
+    "Pizza box": "some sort of general waste item",
+    "Paper cup": "some sort of general waste item",
     "Disposable plastic cup": "Disposable plastic cup",
     "Foam cup": "some sort of general waste item",
     "Glass cup": "Glass bottle",
     "Other plastic cup": "Disposable plastic cup",
     "Food waste": "Food waste",
     "Glass jar": "Glass bottle",
-    "Plastic lid": "Plastic bottle cap",
-    "Metal lid": "Food Can",
+    "Plastic lid": "some sort of general waste item",
+    "Metal lid": "some sort of general waste item",
     "Other plastic": "Other plastic",
-    "Magazine paper": "Paper bag",
+    "Magazine paper": "Corrugated carton",
     "Tissues": "some sort of general waste item",
-    "Wrapping paper": "Paper bag",
-    "Normal paper": "Paper bag",
+    "Wrapping paper": "Corrugated carton",
+    "Normal paper": "Corrugated carton",
     "Paper bag": "Paper bag",
     "Plastified paper bag": "some sort of general waste item",
     "Plastic film": "Plastic film",
     "Six pack rings": "Plastic film",
     "Garbage bag": "Plastic film",
-    "Other plastic wrapper": "Other plastic wrapper",
+    "Other plastic wrapper": "Plastic film",
     "Single-use carrier bag": "Plastic film",
     "Polypropylene bag": "Plastic film",
-    "Crisp packet": "Other plastic wrapper",
+    "Crisp packet": "Plastic film",
     "Spread tub": "Disposable plastic cup",
     "Tupperware": "Disposable plastic cup",
     "Disposable food container": "Disposable plastic cup",
@@ -115,11 +107,8 @@ CLASS_REMAP = {
     "Paper straw": "some sort of general waste item",
     "Styrofoam piece": "some sort of general waste item",
     "Unlabeled litter": "some sort of general waste item",
-    "Cigarette": "some sort of general waste item",
+    "Cigarette": "Cigarette",
 }
-
-
-_THREAD_LOCAL = threading.local()
 
 
 @dataclass(slots=True)
@@ -138,49 +127,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-dir", type=Path, default=None, help="Raw TACO cache dir (default: <output-dir>/raw)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--val-ratio", type=float, default=0.20)
-    parser.add_argument("--download-workers", type=int, default=8)
     parser.add_argument("--request-timeout", type=float, default=20.0)
-    parser.add_argument("--max-images", type=int, default=0, help="Debug mode; 0 means all images")
-    parser.add_argument("--aug-copies", type=int, default=1, help="Extra train copies per image")
-    parser.add_argument("--brightness-min", type=float, default=0.70)
-    parser.add_argument("--brightness-max", type=float, default=1.30)
-    parser.add_argument("--contrast-min", type=float, default=0.75)
-    parser.add_argument("--contrast-max", type=float, default=1.35)
-    parser.add_argument("--blur-prob", type=float, default=0.45)
-    parser.add_argument("--blur-radius-max", type=float, default=1.2)
-    parser.add_argument("--skip-download", action="store_true")
     return parser.parse_args()
 
 
-def make_session(pool_size: int) -> requests.Session:
-    retry = Retry(
-        total=3,
-        backoff_factor=0.7,
-        status_forcelist=(408, 429, 500, 502, 503, 504),
-        allowed_methods=frozenset(["GET"]),
-    )
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=pool_size, pool_maxsize=pool_size)
-    session = requests.Session()
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-    return session
-
-
-def get_thread_session(pool_size: int) -> requests.Session:
-    session = getattr(_THREAD_LOCAL, "session", None)
-    if session is None:
-        session = make_session(pool_size)
-        _THREAD_LOCAL.session = session
-    return session
-
-
-def download_annotations(raw_dir: Path, timeout_s: float, pool_size: int) -> dict[str, Any]:
+def download_annotations(raw_dir: Path, timeout_s: float) -> dict[str, Any]:
     raw_dir.mkdir(parents=True, exist_ok=True)
     annotations_path = raw_dir / "annotations.json"
     if not annotations_path.exists():
         print(f"Downloading annotations -> {annotations_path}")
-        session = make_session(pool_size)
-        response = session.get(ANNOTATIONS_URL, timeout=timeout_s)
+        response = requests.get(ANNOTATIONS_URL, timeout=timeout_s)
         response.raise_for_status()
         annotations_path.write_text(response.text, encoding="utf-8")
     return json.loads(annotations_path.read_text(encoding="utf-8"))
@@ -190,7 +146,6 @@ def _download_one_image(
     image_entry: dict[str, Any],
     images_root: Path,
     timeout_s: float,
-    pool_size: int,
 ) -> tuple[int, bool]:
     image_id = int(image_entry["id"])
     rel_path = image_entry["file_name"]
@@ -201,13 +156,11 @@ def _download_one_image(
         return image_id, True
 
     candidates = [image_entry.get("flickr_url"), image_entry.get("flickr_640_url")]
-    session = get_thread_session(pool_size)
-
     for url in candidates:
         if not url:
             continue
         try:
-            r = session.get(url, timeout=timeout_s)
+            r = requests.get(url, timeout=timeout_s)
             if r.status_code != 200 or not r.content:
                 continue
             img = Image.open(BytesIO(r.content)).convert("RGB")
@@ -219,30 +172,19 @@ def _download_one_image(
     return image_id, False
 
 
-def download_images(
-    images: list[dict[str, Any]],
-    images_root: Path,
-    workers: int,
-    timeout_s: float,
-) -> set[int]:
+def download_images(images: list[dict[str, Any]], images_root: Path, timeout_s: float) -> set[int]:
     images_root.mkdir(parents=True, exist_ok=True)
     ok_ids: set[int] = set()
-    failures = 0
-
     total = len(images)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [
-            executor.submit(_download_one_image, image_entry, images_root, timeout_s, workers)
-            for image_entry in images
-        ]
-        for i, fut in enumerate(concurrent.futures.as_completed(futures), start=1):
-            image_id, ok = fut.result()
-            if ok:
-                ok_ids.add(image_id)
-            else:
-                failures += 1
-            if i % 100 == 0 or i == total:
-                print(f"Downloaded {i}/{total} images (failed: {failures})")
+    failures = 0
+    for i, image_entry in enumerate(images, start=1):
+        image_id, ok = _download_one_image(image_entry, images_root, timeout_s)
+        if ok:
+            ok_ids.add(image_id)
+        else:
+            failures += 1
+        if i % 100 == 0 or i == total:
+            print(f"Downloaded {i}/{total} images (failed: {failures})")
 
     return ok_ids
 
@@ -307,35 +249,14 @@ def build_remapped_annotations(data: dict[str, Any]) -> tuple[dict[int, list[tup
 
 def split_ids(
     ids: list[int],
-    labels_by_image: dict[int, list[tuple[int, float, float, float, float]]],
     val_ratio: float,
     seed: int,
 ) -> tuple[list[int], list[int]]:
     rng = random.Random(seed)
     rng.shuffle(ids)
 
-    n_val = max(1, int(math.floor(len(ids) * val_ratio)))
-    val_ids = ids[:n_val]
-    train_ids = ids[n_val:]
-
-    train_set = set(train_ids)
-    val_set = set(val_ids)
-
-    all_classes = {cls for image_id in ids for cls, *_ in labels_by_image[image_id]}
-    val_classes = {cls for image_id in val_set for cls, *_ in labels_by_image[image_id]}
-
-    for missing_cls in sorted(all_classes - val_classes):
-        donor = None
-        for image_id in train_ids:
-            img_classes = {cls for cls, *_ in labels_by_image[image_id]}
-            if missing_cls in img_classes:
-                donor = image_id
-                break
-        if donor is not None:
-            train_set.remove(donor)
-            val_set.add(donor)
-
-    return sorted(train_set), sorted(val_set)
+    n_val = max(1, int(len(ids) * val_ratio))
+    return ids[n_val:], ids[:n_val]
 
 
 def sanitize_stem(image_id: int, rel_path: str) -> str:
@@ -353,23 +274,10 @@ def write_label_file(path: Path, labels: list[tuple[int, float, float, float, fl
 def apply_webcam_augmentation(
     image: Image.Image,
     rng: random.Random,
-    brightness_min: float,
-    brightness_max: float,
-    contrast_min: float,
-    contrast_max: float,
-    blur_prob: float,
-    blur_radius_max: float,
 ) -> Image.Image:
-    out = image
-    brightness_factor = rng.uniform(brightness_min, brightness_max)
-    contrast_factor = rng.uniform(contrast_min, contrast_max)
-    out = ImageEnhance.Brightness(out).enhance(brightness_factor)
-    out = ImageEnhance.Contrast(out).enhance(contrast_factor)
-
-    if rng.random() < blur_prob:
-        radius = rng.uniform(0.35, blur_radius_max)
-        out = out.filter(ImageFilter.GaussianBlur(radius=radius))
-    return out
+    return ImageEnhance.Contrast(
+        ImageEnhance.Brightness(image).enhance(rng.uniform(0.80, 1.20))
+    ).enhance(rng.uniform(0.90, 1.10))
 
 
 def export_split(
@@ -380,9 +288,7 @@ def export_split(
     raw_images_root: Path,
     output_dir: Path,
     stats: ExportStats,
-    aug_copies: int,
     rng: random.Random,
-    args: argparse.Namespace,
 ) -> None:
     images_out = output_dir / "images" / split_name
     labels_out = output_dir / "labels" / split_name
@@ -412,28 +318,17 @@ def export_split(
             stats.val_images += 1
             stats.val_labels += len(labels)
 
-        if split_name != "train" or aug_copies <= 0:
+        if split_name != "train":
             continue
 
-        for i in range(aug_copies):
-            aug_img = apply_webcam_augmentation(
-                image=img,
-                rng=rng,
-                brightness_min=args.brightness_min,
-                brightness_max=args.brightness_max,
-                contrast_min=args.contrast_min,
-                contrast_max=args.contrast_max,
-                blur_prob=args.blur_prob,
-                blur_radius_max=args.blur_radius_max,
-            )
-            aug_stem = f"{stem}__aug{i}"
-            aug_image_out = images_out / f"{aug_stem}.jpg"
-            aug_label_out = labels_out / f"{aug_stem}.txt"
-            aug_img.save(aug_image_out, quality=95)
-            write_label_file(aug_label_out, labels)
-            stats.augmented_images += 1
-            stats.train_images += 1
-            stats.train_labels += len(labels)
+        aug_img = apply_webcam_augmentation(image=img, rng=rng)
+        aug_image_out = images_out / f"{stem}__aug.jpg"
+        aug_label_out = labels_out / f"{stem}__aug.txt"
+        aug_img.save(aug_image_out, quality=95)
+        write_label_file(aug_label_out, labels)
+        stats.augmented_images += 1
+        stats.train_images += 1
+        stats.train_labels += len(labels)
 
 
 def write_data_yaml(output_dir: Path) -> None:
@@ -507,24 +402,11 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("Step 1/6 - Download/load annotations")
-    data = download_annotations(raw_dir=raw_dir, timeout_s=args.request_timeout, pool_size=args.download_workers)
+    data = download_annotations(raw_dir=raw_dir, timeout_s=args.request_timeout)
 
     print("Step 2/6 - Download TACO images")
     image_entries = list(data["images"])
-    if args.max_images > 0:
-        image_entries = image_entries[: args.max_images]
-        allowed_ids = {int(x["id"]) for x in image_entries}
-        data["annotations"] = [a for a in data["annotations"] if int(a["image_id"]) in allowed_ids]
-
-    if args.skip_download:
-        downloaded_ids = {int(img["id"]) for img in image_entries if (raw_images_root / img["file_name"]).exists()}
-    else:
-        downloaded_ids = download_images(
-            images=image_entries,
-            images_root=raw_images_root,
-            workers=args.download_workers,
-            timeout_s=args.request_timeout,
-        )
+    downloaded_ids = download_images(images=image_entries, images_root=raw_images_root, timeout_s=args.request_timeout)
     print(f"Images available locally: {len(downloaded_ids)}")
 
     print("Step 3/6 - Remap classes and convert boxes")
@@ -535,12 +417,7 @@ def main() -> None:
     print(f"Images with mapped annotations: {len(kept_ids)}")
 
     print("Step 4/6 - Train/val split")
-    train_ids, val_ids = split_ids(
-        ids=kept_ids,
-        labels_by_image=labels_by_image,
-        val_ratio=args.val_ratio,
-        seed=args.seed,
-    )
+    train_ids, val_ids = split_ids(ids=kept_ids, val_ratio=args.val_ratio, seed=args.seed)
     print(f"Train images: {len(train_ids)} | Val images: {len(val_ids)}")
 
     print("Step 5/6 - Export YOLO dataset with augmentation")
@@ -561,9 +438,7 @@ def main() -> None:
         raw_images_root=raw_images_root,
         output_dir=output_dir,
         stats=stats,
-        aug_copies=max(0, args.aug_copies),
         rng=rng,
-        args=args,
     )
     export_split(
         split_name="val",
@@ -573,9 +448,7 @@ def main() -> None:
         raw_images_root=raw_images_root,
         output_dir=output_dir,
         stats=stats,
-        aug_copies=0,
         rng=rng,
-        args=args,
     )
 
     write_data_yaml(output_dir)
