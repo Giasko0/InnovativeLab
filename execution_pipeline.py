@@ -54,7 +54,7 @@ class GroqStreamingConfig:
     vision_model: str = "meta-llama/llama-3.2-11b-vision-instruct"
     tts_model: str = "playai-tts"
     tts_voice: str = "Fritz-PlayAI"
-    vision_max_tokens: int = 220
+    vision_max_tokens: int = 96
     vision_temperature: float = 0.2
     request_timeout_s: float = 45.0
     min_tts_interval_s: float = 0.2
@@ -86,7 +86,7 @@ def build_recycling_prompt(item_label: str, rules: dict[str, dict[str, str]]) ->
         f"HK rule: throw it in {rule['bin']}.\n"
         f"Where: {rule['where']}.\n"
         f"Rule note: {rule['note']}\n"
-        "Reply in one short, natural sentence.\n"
+        "Reply in one short, natural sentence of at most 15 words.\n"
         "Start with: 'Looks like you are showing me a ...,' and end with the disposal advice.\n"
         "Do not add extra explanations."
     )

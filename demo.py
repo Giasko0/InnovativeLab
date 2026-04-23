@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import time
 import threading
+import os
 from pathlib import Path
 
 import cv2
@@ -53,6 +54,7 @@ def speak_item(crop, label, rules):
 
 
 def main(weights="Code/train5/weights/best.pt", source=0, conf=0.35):
+    weights = os.getenv("TRASHSORT_WEIGHTS", weights)
     model = YOLO(weights)
     rules = load_recycling_rules(Path(__file__).with_name("hk_recycling_rules.json"))
     cap = cv2.VideoCapture(source)
@@ -102,7 +104,7 @@ def main(weights="Code/train5/weights/best.pt", source=0, conf=0.35):
                 )
 
                 now = time.time()
-                if stable_count >= 3 and now - last_spoken > 3.0 and not speaking:
+                if stable_count >= 5 and now - last_spoken > 3.5 and not speaking:
                     crop = crop_frame(frame, xyxy)
                     if crop is not None:
                         speaking = True
