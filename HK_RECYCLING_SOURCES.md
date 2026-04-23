@@ -25,18 +25,22 @@
 - **Rechargeable Battery Recycling Programme**
   - batteries need designated collection, not normal public recycling bins
 
+- **Map of Recycling Points / recycling-point pages**
+  - useful for glass collection points and district-specific facilities
+
 ## How this project uses the sources
 
 - **Public bins**:
   - clean plastic bottles
   - metal cans
   - paper/cardboard
-  - some beverage carton cases
+  - beverage cartons can be treated as a dedicated route in the demo when needed
 
 - **Designated points**:
   - glass
   - food waste
   - batteries
+  - beverage cartons if you want to emphasize the special collection route
 
 - **General waste**:
   - cigarette butts

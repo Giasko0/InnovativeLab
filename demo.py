@@ -66,14 +66,18 @@ def main(weights="Code/train5/weights/best.pt", source=0, conf=0.35):
     stable_count = 0
     spoken_text = ""
     speaking = False
+    status_text = "Scanning"
 
     def speak_async(crop, label):
-        nonlocal spoken_text, speaking, last_spoken
+        nonlocal spoken_text, speaking, last_spoken, status_text
         try:
             spoken_text = speak_item(crop, label, rules)
+        except Exception:
+            spoken_text = ""
         finally:
             last_spoken = time.time()
             speaking = False
+            status_text = "Ready"
 
     try:
         while True:
@@ -108,6 +112,7 @@ def main(weights="Code/train5/weights/best.pt", source=0, conf=0.35):
                     crop = crop_frame(frame, xyxy)
                     if crop is not None:
                         speaking = True
+                        status_text = "Thinking"
                         threading.Thread(target=speak_async, args=(crop, label), daemon=True).start()
 
             if spoken_text:
@@ -120,6 +125,18 @@ def main(weights="Code/train5/weights/best.pt", source=0, conf=0.35):
                     (255, 255, 0),
                     2,
                 )
+
+            overlay_color = (0, 200, 0) if status_text == "Scanning" else (0, 165, 255) if status_text == "Thinking" else (255, 215, 0)
+            cv2.rectangle(display, (0, 0), (display.shape[1], 48), overlay_color, -1)
+            cv2.putText(
+                display,
+                f"TrashSort | {status_text} | stable={stable_count}",
+                (10, 32),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9,
+                (0, 0, 0),
+                2,
+            )
 
             cv2.imshow("TrashSort Demo", display)
             if cv2.waitKey(1) & 0xFF == ord("q"):

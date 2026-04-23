@@ -25,9 +25,9 @@
     "note": "use a glass recycling point or designated collection bin"
   },
   "Drink carton": {
-    "bin": "carton recycling bin",
-    "where": "public bin or Green@Community",
-    "note": "flatten and keep it reasonably clean"
+    "bin": "beverage carton collection point",
+    "where": "designated point or GREEN@COMMUNITY",
+    "note": "flatten, rinse, and use the dedicated carton route instead of normal paper recycling"
   },
   "Corrugated carton": {
     "bin": "paper recycling bin",

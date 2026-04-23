@@ -55,7 +55,7 @@ class GroqStreamingConfig:
     tts_model: str = "playai-tts"
     tts_voice: str = "Fritz-PlayAI"
     vision_max_tokens: int = 96
-    vision_temperature: float = 0.2
+    vision_temperature: float = 0.1
     request_timeout_s: float = 45.0
     min_tts_interval_s: float = 0.2
     max_sentence_chars: int = 180
@@ -82,6 +82,8 @@ def build_recycling_prompt(item_label: str, rules: dict[str, dict[str, str]]) ->
     rule = rules.get(item_label, rules["some sort of general waste item"])
     return (
         "You are TrashSort, a Hong Kong recycling assistant.\n"
+        "Be strict, direct, and biased toward safe Hong Kong disposal.\n"
+        "When uncertain, prefer general waste or a designated collection point.\n"
         f"Detected item label: {item_label}\n"
         f"HK rule: throw it in {rule['bin']}.\n"
         f"Where: {rule['where']}.\n"

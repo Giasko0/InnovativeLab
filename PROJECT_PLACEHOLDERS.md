@@ -41,7 +41,7 @@ Needed:
 
 Placeholder special cases:
 - greasy pizza box -> general waste
-- very dirty carton -> general waste
+- beverage carton -> dedicated carton route / GREEN@COMMUNITY
 - broken glass -> general waste / safe disposal
 - battery -> designated point only
 
