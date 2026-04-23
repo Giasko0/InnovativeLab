@@ -1,77 +1,77 @@
 {
   "Clear plastic bottle": {
     "bin": "plastic recycling bin",
-    "where": "public bin",
-    "note": "empty and rinse if possible"
+    "where": "public recycling bin",
+    "note": "empty and rinse if possible; remove cap"
   },
   "Other plastic bottle": {
     "bin": "plastic recycling bin",
-    "where": "public bin",
+    "where": "public recycling bin",
     "note": "empty and rinse if possible"
   },
   "Drink can": {
     "bin": "metal recycling bin",
-    "where": "public bin",
-    "note": "empty first"
+    "where": "public recycling bin",
+    "note": "empty it first"
   },
   "Food Can": {
     "bin": "metal recycling bin",
-    "where": "public bin",
-    "note": "clean it if possible"
+    "where": "public recycling bin",
+    "note": "rinse if possible"
   },
   "Glass bottle": {
     "bin": "glass collection point",
-    "where": "designated point",
-    "note": "use a glass recycling point or designated collection bin"
+    "where": "designated glass recycling point — find your nearest one at the EPD recycling map",
+    "note": "glass is not accepted in normal public bins; use a designated collection point"
   },
   "Drink carton": {
-    "bin": "beverage carton collection point",
-    "where": "designated point or GREEN@COMMUNITY",
-    "note": "flatten, rinse, and use the dedicated carton route instead of normal paper recycling"
+    "bin": "paper recycling bin or GREEN@COMMUNITY carton point",
+    "where": "public recycling bin or GREEN@COMMUNITY station",
+    "note": "flatten, rinse, and dry first; dedicated carton routes available at GREEN@COMMUNITY stations"
   },
   "Corrugated carton": {
     "bin": "paper recycling bin",
-    "where": "public bin",
-    "note": "flatten it"
+    "where": "public recycling bin",
+    "note": "flatten it; keep it dry"
   },
   "Paper bag": {
     "bin": "paper recycling bin",
-    "where": "public bin",
-    "note": "keep it dry"
+    "where": "public recycling bin",
+    "note": "keep it dry; remove any plastic handles or tape"
   },
   "Plastic film": {
     "bin": "general waste bin",
-    "where": "public bin",
-    "note": "plastic film is usually not accepted in normal public recycling bins"
+    "where": "general waste bin",
+    "note": "plastic film is not accepted in normal public recycling bins in HK"
   },
   "Other plastic": {
     "bin": "general waste bin",
-    "where": "public bin",
-    "note": "when unsure, keep it simple and throw it away"
+    "where": "general waste bin",
+    "note": "when unsure, general waste is the safe choice"
   },
   "Disposable plastic cup": {
     "bin": "general waste bin",
-    "where": "public bin",
-    "note": "dirty single-use plastic is usually general waste"
+    "where": "general waste bin",
+    "note": "dirty single-use plastic goes to general waste"
   },
   "Food waste": {
     "bin": "food waste collection point",
-    "where": "designated point",
-    "note": "use food waste recycling point or spot if available"
+    "where": "designated food waste recycling point — find your nearest one at the EPD food waste map",
+    "note": "use the food waste recycling scheme if available near you"
   },
   "Cigarette": {
     "bin": "general waste bin",
-    "where": "public bin",
-    "note": "cigarette butts go to general waste"
+    "where": "general waste bin",
+    "note": "cigarette butts always go to general waste"
   },
   "Battery": {
     "bin": "battery recycling point",
-    "where": "designated point",
-    "note": "use designated battery collection"
+    "where": "designated battery collection point",
+    "note": "never throw batteries in normal bins; use the Rechargeable Battery Recycling Programme"
   },
   "some sort of general waste item": {
     "bin": "general waste bin",
-    "where": "public bin",
-    "note": "fallback for dirty, mixed, or uncertain items"
+    "where": "general waste bin",
+    "note": "when in doubt, general waste is always the safe fallback"
   }
 }

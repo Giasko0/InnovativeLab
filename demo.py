@@ -53,6 +53,57 @@ def speak_item(crop, label, rules):
     return asyncio.run(stream_crop_vision_to_tts(crop, prompt=prompt))
 
 
+def draw_status_bar(display, status_text, stable_count):
+    """Draw the top status bar — overlay first, then text on top."""
+    colors = {
+        "Scanning": (34, 139, 34),   # green
+        "Thinking": (0, 140, 255),   # orange
+        "Ready":    (180, 180, 0),   # gold
+    }
+    color = colors.get(status_text, (80, 80, 80))
+    cv2.rectangle(display, (0, 0), (display.shape[1], 50), color, -1)
+    cv2.putText(
+        display,
+        f"TrashSort  |  {status_text}  |  stable={stable_count}",
+        (10, 34),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.85,
+        (255, 255, 255),
+        2,
+    )
+
+
+def draw_detection_label(display, label, conf):
+    """Draw label just below the status bar so it's never hidden by the overlay."""
+    cv2.putText(
+        display,
+        f"{label}  {conf:.2f}",
+        (10, 80),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.9,
+        (0, 255, 80),
+        2,
+    )
+
+
+def draw_spoken_text(display, text):
+    """Draw the last spoken sentence at the bottom of the frame."""
+    if not text:
+        return
+    y = display.shape[0] - 16
+    # dark background strip for readability
+    cv2.rectangle(display, (0, y - 26), (display.shape[1], y + 6), (0, 0, 0), -1)
+    cv2.putText(
+        display,
+        text[:90],
+        (10, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        (255, 220, 60),
+        2,
+    )
+
+
 def main(weights="Code/train5/weights/best.pt", source=0, conf=0.35):
     weights = os.getenv("TRASHSORT_WEIGHTS", weights)
     model = YOLO(weights)
@@ -89,6 +140,9 @@ def main(weights="Code/train5/weights/best.pt", source=0, conf=0.35):
             det = pick_detection(result)
             display = result.plot()
 
+            # Draw status bar first (it's the background), then text on top
+            draw_status_bar(display, status_text, stable_count)
+
             if det is not None:
                 label, det_conf, xyxy = det
                 if label == last_label:
@@ -97,15 +151,7 @@ def main(weights="Code/train5/weights/best.pt", source=0, conf=0.35):
                     stable_count = 0
                     last_label = label
 
-                cv2.putText(
-                    display,
-                    f"{label} {det_conf:.2f}",
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
-                    (0, 255, 0),
-                    2,
-                )
+                draw_detection_label(display, label, det_conf)
 
                 now = time.time()
                 if stable_count >= 5 and now - last_spoken > 3.5 and not speaking:
@@ -115,28 +161,7 @@ def main(weights="Code/train5/weights/best.pt", source=0, conf=0.35):
                         status_text = "Thinking"
                         threading.Thread(target=speak_async, args=(crop, label), daemon=True).start()
 
-            if spoken_text:
-                cv2.putText(
-                    display,
-                    spoken_text[:90],
-                    (10, display.shape[0] - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (255, 255, 0),
-                    2,
-                )
-
-            overlay_color = (0, 200, 0) if status_text == "Scanning" else (0, 165, 255) if status_text == "Thinking" else (255, 215, 0)
-            cv2.rectangle(display, (0, 0), (display.shape[1], 48), overlay_color, -1)
-            cv2.putText(
-                display,
-                f"TrashSort | {status_text} | stable={stable_count}",
-                (10, 32),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.9,
-                (0, 0, 0),
-                2,
-            )
+            draw_spoken_text(display, spoken_text)
 
             cv2.imshow("TrashSort Demo", display)
             if cv2.waitKey(1) & 0xFF == ord("q"):
