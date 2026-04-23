@@ -1,0 +1,77 @@
+{
+  "Clear plastic bottle": {
+    "bin": "plastic recycling bin",
+    "where": "public bin",
+    "note": "empty and rinse if possible"
+  },
+  "Other plastic bottle": {
+    "bin": "plastic recycling bin",
+    "where": "public bin",
+    "note": "empty and rinse if possible"
+  },
+  "Drink can": {
+    "bin": "metal recycling bin",
+    "where": "public bin",
+    "note": "empty first"
+  },
+  "Food Can": {
+    "bin": "metal recycling bin",
+    "where": "public bin",
+    "note": "clean it if possible"
+  },
+  "Glass bottle": {
+    "bin": "glass collection point",
+    "where": "designated point",
+    "note": "use a glass recycling point or designated collection bin"
+  },
+  "Drink carton": {
+    "bin": "carton recycling bin",
+    "where": "public bin or Green@Community",
+    "note": "flatten and keep it reasonably clean"
+  },
+  "Corrugated carton": {
+    "bin": "paper recycling bin",
+    "where": "public bin",
+    "note": "flatten it"
+  },
+  "Paper bag": {
+    "bin": "paper recycling bin",
+    "where": "public bin",
+    "note": "keep it dry"
+  },
+  "Plastic film": {
+    "bin": "general waste bin",
+    "where": "public bin",
+    "note": "plastic film is usually not accepted in normal public recycling bins"
+  },
+  "Other plastic": {
+    "bin": "general waste bin",
+    "where": "public bin",
+    "note": "when unsure, keep it simple and throw it away"
+  },
+  "Disposable plastic cup": {
+    "bin": "general waste bin",
+    "where": "public bin",
+    "note": "dirty single-use plastic is usually general waste"
+  },
+  "Food waste": {
+    "bin": "food waste collection point",
+    "where": "designated point",
+    "note": "use food waste recycling point or spot if available"
+  },
+  "Cigarette": {
+    "bin": "general waste bin",
+    "where": "public bin",
+    "note": "cigarette butts go to general waste"
+  },
+  "Battery": {
+    "bin": "battery recycling point",
+    "where": "designated point",
+    "note": "use designated battery collection"
+  },
+  "some sort of general waste item": {
+    "bin": "general waste bin",
+    "where": "public bin",
+    "note": "fallback for dirty, mixed, or uncertain items"
+  }
+}

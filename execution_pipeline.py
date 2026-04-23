@@ -29,6 +29,7 @@ import soundfile as sf
 
 
 SENTENCE_RE = re.compile(r"(.+?[.!?])(?:\s+|$)", re.S)
+RULES_PATH = Path(__file__).with_name("hk_recycling_rules.json")
 
 
 def load_env_file(path: str | Path = ".env") -> None:
@@ -68,6 +69,28 @@ class GroqStreamingConfig:
         if not key:
             raise RuntimeError("Missing Groq API key. Set GROQ_API_KEY or pass api_key in config.")
         return key
+
+
+def load_recycling_rules(path: str | Path = RULES_PATH) -> dict[str, dict[str, str]]:
+    rules_path = Path(path)
+    if not rules_path.exists():
+        raise FileNotFoundError(f"Missing recycling rules file: {rules_path}")
+    return json.loads(rules_path.read_text(encoding="utf-8"))
+
+
+def build_recycling_prompt(item_label: str, rules: dict[str, dict[str, str]]) -> str:
+    rule = rules.get(item_label, rules["some sort of general waste item"])
+    return (
+        "You are TrashSort, a Hong Kong recycling assistant.\n"
+        f"Detected item label: {item_label}\n"
+        f"HK rule: throw it in {rule['bin']}.\n"
+        f"Where: {rule['where']}.\n"
+        f"Rule note: {rule['note']}\n"
+        "Reply in one short, natural sentence.\n"
+        "Start with: 'Looks like you are showing me a ...,' and end with the disposal advice.\n"
+        "Do not add extra explanations."
+    )
+
 
 def encode_crop_to_data_url(crop: np.ndarray | bytes | str | Path) -> str:
     if isinstance(crop, np.ndarray):
