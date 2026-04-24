@@ -535,6 +535,8 @@ def resolve_training_device() -> str:
 
 
 def resolve_training_workers() -> int:
+    if os.name == "nt":
+        return 0
     cpu_count = os.cpu_count() or 4
     return max(2, min(8, cpu_count // 2))
 

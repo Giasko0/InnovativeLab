@@ -32,6 +32,12 @@ Run:
 python execution_pipeline.py
 ```
 
+You can resize the inference window while it is running. To start larger:
+
+```bash
+python execution_pipeline.py --window-width 1280 --window-height 720
+```
+
 Optional custom weights:
 
 ```bash

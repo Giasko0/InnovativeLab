@@ -36,6 +36,8 @@ import soundfile as sf
 SENTENCE_RE = re.compile(r"(.+?[.!?])(?:\s+|$)", re.S)
 RULES_PATH = Path(__file__).with_name("hk_recycling_rules.json")
 DEFAULT_WEIGHTS_PATH = Path("datasets/taco_hk_yolo26/runs/train_py/weights/best.pt")
+DEFAULT_WINDOW_WIDTH = 1280
+DEFAULT_WINDOW_HEIGHT = 720
 
 
 def load_env_file(path: str | Path = ".env") -> None:
@@ -341,6 +343,25 @@ def draw_status_bar(display, status_text, stable_count):
     )
 
 
+def wrap_text(text: str, max_width: int, font_scale: float = 0.6, thickness: int = 2) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+
+    lines: list[str] = []
+    current = words[0]
+    for word in words[1:]:
+        candidate = f"{current} {word}"
+        width = cv2.getTextSize(candidate, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0][0]
+        if width <= max_width:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+    return lines
+
+
 def draw_detection_label(display, label, conf):
     cv2.putText(
         display,
@@ -356,17 +377,30 @@ def draw_detection_label(display, label, conf):
 def draw_spoken_text(display, text):
     if not text:
         return
-    y = display.shape[0] - 16
-    cv2.rectangle(display, (0, y - 26), (display.shape[1], y + 6), (0, 0, 0), -1)
-    cv2.putText(
-        display,
-        text[:90],
-        (10, y),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (255, 220, 60),
-        2,
-    )
+    max_width = display.shape[1] - 20
+    lines = wrap_text(text, max_width=max_width, font_scale=0.6, thickness=2)[:3]
+    if not lines:
+        return
+
+    _, line_height = cv2.getTextSize("Ag", cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+    line_height += 10
+    padding = 10
+    box_height = padding * 2 + line_height * len(lines)
+    top = max(0, display.shape[0] - box_height)
+    cv2.rectangle(display, (0, top), (display.shape[1], display.shape[0]), (0, 0, 0), -1)
+
+    y = top + padding + line_height - 4
+    for line in lines:
+        cv2.putText(
+            display,
+            line,
+            (10, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 220, 60),
+            2,
+        )
+        y += line_height
 
 
 def speak_item(crop, label, rules):
@@ -384,6 +418,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--imgsz", type=int, default=640, help="YOLO inference image size")
     parser.add_argument("--stable-frames", type=int, default=5, help="Frames before speaking")
     parser.add_argument("--cooldown", type=float, default=3.5, help="Minimum seconds between speeches")
+    parser.add_argument("--window-width", type=int, default=DEFAULT_WINDOW_WIDTH, help="Initial inference window width")
+    parser.add_argument("--window-height", type=int, default=DEFAULT_WINDOW_HEIGHT, help="Initial inference window height")
     return parser.parse_args()
 
 
@@ -407,6 +443,10 @@ def run_inference(args: argparse.Namespace) -> None:
     cap = cv2.VideoCapture(args.source)
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open webcam source {args.source}")
+
+    window_name = "TrashSort Inference (press 'q' to quit)"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, args.window_width, args.window_height)
 
     last_spoken = 0.0
     last_label = None
@@ -460,7 +500,7 @@ def run_inference(args: argparse.Namespace) -> None:
                         threading.Thread(target=speak_async, args=(crop, label), daemon=True).start()
 
             draw_spoken_text(display, spoken_text)
-            cv2.imshow("TrashSort Inference (press 'q' to quit)", display)
+            cv2.imshow(window_name, display)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     finally:
