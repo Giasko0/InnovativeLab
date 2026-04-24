@@ -4,11 +4,11 @@ Async Groq Vision -> sentence streaming -> Groq TTS -> non-blocking playback.
 
 CLI usage:
 - python execution_pipeline.py
-- optional: python execution_pipeline.py --weights train5/weights/best.pt --source 0
+- optional: python execution_pipeline.py --weights datasets/taco_hk_yolo26/runs/train_py/weights/best.pt --source 0
 
 Requirements:
 - GROQ_API_KEY in environment or .env file next to this script
-- trained YOLO weights (default: train5/weights/best.pt)
+- trained YOLO weights (default: datasets/taco_hk_yolo26/runs/train_py/weights/best.pt)
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ import soundfile as sf
 
 SENTENCE_RE = re.compile(r"(.+?[.!?])(?:\s+|$)", re.S)
 RULES_PATH = Path(__file__).with_name("hk_recycling_rules.json")
-DEFAULT_WEIGHTS_PATH = Path(__file__).with_name("train5") / "weights" / "best.pt"
+DEFAULT_WEIGHTS_PATH = Path("datasets/taco_hk_yolo26/runs/train_py/weights/best.pt")
 
 
 def load_env_file(path: str | Path = ".env") -> None:

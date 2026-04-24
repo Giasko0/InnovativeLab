@@ -31,7 +31,7 @@ from PIL import Image, ImageEnhance
 
 ANNOTATIONS_URL = "https://raw.githubusercontent.com/pedropro/TACO/master/data/annotations.json"
 
-DEFAULT_OUTPUT_DIR = Path("Code/datasets/taco_hk_yolo26")
+DEFAULT_OUTPUT_DIR = Path("datasets/taco_hk_yolo26")
 DEFAULT_SEED = 42
 DEFAULT_VAL_RATIO = 0.20
 DEFAULT_REQUEST_TIMEOUT_S = 20.0

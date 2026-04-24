@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Tiny Groq debug helper.
-Loads GROQ_API_KEY from Code/.env and prints the available model list.
+Loads GROQ_API_KEY from .env and prints the available model list.
 """
 
 from __future__ import annotations
