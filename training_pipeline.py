@@ -347,7 +347,7 @@ def export_split(
         stats.train_labels += len(labels)
 
 
-def write_data_yaml(output_dir: Path) -> None:
+def build_data_yaml_content(output_dir: Path) -> str:
     lines = [
         f"path: {output_dir.resolve()}",
         "train: images/train",
@@ -356,7 +356,125 @@ def write_data_yaml(output_dir: Path) -> None:
         "names:",
     ]
     lines.extend([f"  - {name}" for name in TARGET_CLASSES])
-    (output_dir / "data.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
+
+
+def write_data_yaml(output_dir: Path) -> None:
+    (output_dir / "data.yaml").write_text(build_data_yaml_content(output_dir), encoding="utf-8")
+
+
+def count_exportable_images(
+    split_ids: list[int],
+    images_by_id: dict[int, dict[str, Any]],
+    labels_by_image: dict[int, list[tuple[int, float, float, float, float]]],
+    raw_images_root: Path,
+) -> int:
+    total = 0
+    for image_id in split_ids:
+        image_meta = images_by_id.get(image_id)
+        if image_meta is None:
+            continue
+        labels = labels_by_image.get(image_id, [])
+        src = raw_images_root / image_meta["file_name"]
+        if src.exists() and labels:
+            total += 1
+    return total
+
+
+def load_existing_consistency_report(output_dir: Path) -> dict[str, Any] | None:
+    report_path = output_dir / "consistency_report.json"
+    if not report_path.exists():
+        return None
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    if not isinstance(report, dict) or not report.get("ok"):
+        return None
+    counts = report.get("counts")
+    if not isinstance(counts, dict):
+        return None
+    for split in ("train", "val"):
+        split_counts = counts.get(split)
+        if not isinstance(split_counts, dict):
+            return None
+        if not isinstance(split_counts.get("images"), int) or not isinstance(split_counts.get("labels"), int):
+            return None
+    return report
+
+
+def should_skip_export(
+    output_dir: Path,
+    train_ids: list[int],
+    val_ids: list[int],
+    images_by_id: dict[int, dict[str, Any]],
+    labels_by_image: dict[int, list[tuple[int, float, float, float, float]]],
+    raw_images_root: Path,
+    class_counter: Counter,
+) -> bool:
+    required_dirs = (
+        output_dir / "images" / "train",
+        output_dir / "images" / "val",
+        output_dir / "labels" / "train",
+        output_dir / "labels" / "val",
+    )
+    if any(not p.exists() for p in required_dirs):
+        return False
+
+    data_yaml_path = output_dir / "data.yaml"
+    if not data_yaml_path.exists():
+        return False
+    if data_yaml_path.read_text(encoding="utf-8") != build_data_yaml_content(output_dir):
+        return False
+
+    class_distribution_path = output_dir / "class_distribution.json"
+    if not class_distribution_path.exists():
+        return False
+    try:
+        existing_distribution = json.loads(class_distribution_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+    expected_distribution = dict(sorted(class_counter.items(), key=lambda kv: kv[0]))
+    if existing_distribution != expected_distribution:
+        return False
+
+    report = load_existing_consistency_report(output_dir)
+    if report is None:
+        return False
+
+    expected_train = count_exportable_images(
+        split_ids=train_ids,
+        images_by_id=images_by_id,
+        labels_by_image=labels_by_image,
+        raw_images_root=raw_images_root,
+    )
+    expected_val = count_exportable_images(
+        split_ids=val_ids,
+        images_by_id=images_by_id,
+        labels_by_image=labels_by_image,
+        raw_images_root=raw_images_root,
+    )
+
+    expected_counts = {"train": expected_train * 2, "val": expected_val}
+    for split in ("train", "val"):
+        split_counts = report["counts"][split]
+        expected = expected_counts[split]
+        if split_counts["images"] != expected or split_counts["labels"] != expected:
+            return False
+    return True
+
+
+def stats_from_existing_export(output_dir: Path, report: dict[str, Any]) -> ExportStats:
+    augmented_images = sum(1 for _ in (output_dir / "images" / "train").glob("*__aug.jpg"))
+    return ExportStats(
+        train_images=int(report["counts"]["train"]["images"]),
+        val_images=int(report["counts"]["val"]["images"]),
+        train_labels=int(report["counts"]["train"]["labels"]),
+        val_labels=int(report["counts"]["val"]["labels"]),
+        augmented_images=augmented_images,
+        skipped_images=0,
+    )
 
 
 def run_consistency_checks(output_dir: Path) -> dict[str, Any]:
@@ -483,44 +601,58 @@ def main() -> None:
     print(f"Train images: {len(train_ids)} | Val images: {len(val_ids)}")
 
     print("Step 5/6 - Export YOLO dataset with augmentation")
-    images_root = output_dir / "images"
-    labels_root = output_dir / "labels"
-    if images_root.exists():
-        shutil.rmtree(images_root)
-    if labels_root.exists():
-        shutil.rmtree(labels_root)
-
     stats = ExportStats()
-    rng = random.Random(DEFAULT_SEED)
-    export_split(
-        split_name="train",
-        split_ids=train_ids,
+    skip_export = should_skip_export(
+        output_dir=output_dir,
+        train_ids=train_ids,
+        val_ids=val_ids,
         images_by_id=images_by_id,
         labels_by_image=labels_by_image,
         raw_images_root=raw_images_root,
-        output_dir=output_dir,
-        stats=stats,
-        rng=rng,
+        class_counter=class_counter,
     )
-    export_split(
-        split_name="val",
-        split_ids=val_ids,
-        images_by_id=images_by_id,
-        labels_by_image=labels_by_image,
-        raw_images_root=raw_images_root,
-        output_dir=output_dir,
-        stats=stats,
-        rng=rng,
-    )
+    if skip_export:
+        print("Found a valid existing export. Skipping Step 5 re-export.")
+    else:
+        images_root = output_dir / "images"
+        labels_root = output_dir / "labels"
+        if images_root.exists():
+            shutil.rmtree(images_root)
+        if labels_root.exists():
+            shutil.rmtree(labels_root)
 
-    write_data_yaml(output_dir)
-    (output_dir / "class_distribution.json").write_text(
-        json.dumps(dict(sorted(class_counter.items(), key=lambda kv: kv[0])), indent=2),
-        encoding="utf-8",
-    )
+        rng = random.Random(DEFAULT_SEED)
+        export_split(
+            split_name="train",
+            split_ids=train_ids,
+            images_by_id=images_by_id,
+            labels_by_image=labels_by_image,
+            raw_images_root=raw_images_root,
+            output_dir=output_dir,
+            stats=stats,
+            rng=rng,
+        )
+        export_split(
+            split_name="val",
+            split_ids=val_ids,
+            images_by_id=images_by_id,
+            labels_by_image=labels_by_image,
+            raw_images_root=raw_images_root,
+            output_dir=output_dir,
+            stats=stats,
+            rng=rng,
+        )
+
+        write_data_yaml(output_dir)
+        (output_dir / "class_distribution.json").write_text(
+            json.dumps(dict(sorted(class_counter.items(), key=lambda kv: kv[0])), indent=2),
+            encoding="utf-8",
+        )
 
     print("Step 6/6 - Consistency checks")
     report = run_consistency_checks(output_dir)
+    if skip_export:
+        stats = stats_from_existing_export(output_dir=output_dir, report=report)
     if not report["ok"]:
         print("Consistency issues found:")
         for p in report["problems"][:20]:
