@@ -8,12 +8,14 @@ Features:
 - Applies webcam-like train augmentation (brightness/contrast + mild blur)
 - Exports YOLO-format labels and data.yaml (YOLO26-compatible layout)
 - Validates annotation consistency
+- Optionally launches Ultralytics YOLO training from the prepared dataset
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import shutil
 import time
@@ -28,6 +30,19 @@ from PIL import Image, ImageEnhance
 
 
 ANNOTATIONS_URL = "https://raw.githubusercontent.com/pedropro/TACO/master/data/annotations.json"
+
+DEFAULT_OUTPUT_DIR = Path("Code/datasets/taco_hk_yolo26")
+DEFAULT_SEED = 42
+DEFAULT_VAL_RATIO = 0.20
+DEFAULT_REQUEST_TIMEOUT_S = 20.0
+
+TRAIN_BASE_MODEL = "yolo26n.pt"
+TRAIN_EPOCHS = 100
+TRAIN_BATCH = 64
+TRAIN_PATIENCE = 20
+TRAIN_IMGSZ = 416
+TRAIN_OPTIMIZER = "MuSGD"
+TRAIN_RUN_NAME = "train_py"
 
 # Small, demo-friendly taxonomy built around common items a person actually shows to a webcam.
 TARGET_CLASSES = [
@@ -123,11 +138,12 @@ class ExportStats:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare HK-focused YOLO26 dataset from TACO")
-    parser.add_argument("--output-dir", type=Path, default=Path("Code/datasets/taco_hk_yolo26"))
-    parser.add_argument("--raw-dir", type=Path, default=None, help="Raw TACO cache dir (default: <output-dir>/raw)")
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--val-ratio", type=float, default=0.20)
-    parser.add_argument("--request-timeout", type=float, default=20.0)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--prepare-only",
+        action="store_true",
+        help="Only export dataset (skip training).",
+    )
     return parser.parse_args()
 
 
@@ -392,21 +408,67 @@ def run_consistency_checks(output_dir: Path) -> dict[str, Any]:
     return report
 
 
+def resolve_training_device() -> str:
+    try:
+        import torch
+    except ImportError:
+        return "cpu"
+    return "0" if torch.cuda.is_available() else "cpu"
+
+
+def resolve_training_workers() -> int:
+    cpu_count = os.cpu_count() or 4
+    return max(2, min(8, cpu_count // 2))
+
+
+def run_yolo_training(output_dir: Path, data_yaml_path: Path) -> Path:
+    try:
+        from ultralytics import YOLO
+    except ImportError as exc:
+        raise RuntimeError(
+            "Ultralytics is required for training. Install with: pip install -U ultralytics"
+        ) from exc
+
+    runs_dir = (output_dir / "runs").resolve()
+    runs_dir.mkdir(parents=True, exist_ok=True)
+
+    model = YOLO(TRAIN_BASE_MODEL)
+    results = model.train(
+        data=str(data_yaml_path),
+        epochs=TRAIN_EPOCHS,
+        batch=TRAIN_BATCH,
+        patience=TRAIN_PATIENCE,
+        imgsz=TRAIN_IMGSZ,
+        device=resolve_training_device(),
+        plots=True,
+        workers=resolve_training_workers(),
+        optimizer=TRAIN_OPTIMIZER,
+        project=str(runs_dir),
+        name=TRAIN_RUN_NAME,
+        exist_ok=True,
+    )
+    return Path(results.save_dir).resolve()
+
+
 def main() -> None:
     args = parse_args()
     t0 = time.time()
 
     output_dir = args.output_dir.resolve()
-    raw_dir = (args.raw_dir if args.raw_dir is not None else output_dir / "raw").resolve()
+    raw_dir = (output_dir / "raw").resolve()
     raw_images_root = raw_dir / "images"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("Step 1/6 - Download/load annotations")
-    data = download_annotations(raw_dir=raw_dir, timeout_s=args.request_timeout)
+    data = download_annotations(raw_dir=raw_dir, timeout_s=DEFAULT_REQUEST_TIMEOUT_S)
 
     print("Step 2/6 - Download TACO images")
     image_entries = list(data["images"])
-    downloaded_ids = download_images(images=image_entries, images_root=raw_images_root, timeout_s=args.request_timeout)
+    downloaded_ids = download_images(
+        images=image_entries,
+        images_root=raw_images_root,
+        timeout_s=DEFAULT_REQUEST_TIMEOUT_S,
+    )
     print(f"Images available locally: {len(downloaded_ids)}")
 
     print("Step 3/6 - Remap classes and convert boxes")
@@ -417,7 +479,7 @@ def main() -> None:
     print(f"Images with mapped annotations: {len(kept_ids)}")
 
     print("Step 4/6 - Train/val split")
-    train_ids, val_ids = split_ids(ids=kept_ids, val_ratio=args.val_ratio, seed=args.seed)
+    train_ids, val_ids = split_ids(ids=kept_ids, val_ratio=DEFAULT_VAL_RATIO, seed=DEFAULT_SEED)
     print(f"Train images: {len(train_ids)} | Val images: {len(val_ids)}")
 
     print("Step 5/6 - Export YOLO dataset with augmentation")
@@ -429,7 +491,7 @@ def main() -> None:
         shutil.rmtree(labels_root)
 
     stats = ExportStats()
-    rng = random.Random(args.seed)
+    rng = random.Random(DEFAULT_SEED)
     export_split(
         split_name="train",
         split_ids=train_ids,
@@ -474,6 +536,24 @@ def main() -> None:
     print(f"Val boxes:    {stats.val_labels}")
     print(f"Classes kept: {len([c for c in TARGET_CLASSES if class_counter.get(c, 0) > 0])}/{len(TARGET_CLASSES)}")
     print(f"Elapsed:      {elapsed:.1f}s")
+
+    if args.prepare_only:
+        return
+
+    print("\nStep 7/7 - YOLO training")
+    run_dir = run_yolo_training(output_dir=output_dir, data_yaml_path=output_dir / "data.yaml")
+    weights_dir = run_dir / "weights"
+    best_weights = weights_dir / "best.pt"
+    last_weights = weights_dir / "last.pt"
+    results_csv = run_dir / "results.csv"
+    results_png = run_dir / "results.png"
+
+    print("\nTraining completed.")
+    print(f"Run directory: {run_dir}")
+    print(f"Best weights:  {best_weights}")
+    print(f"Last weights:  {last_weights}")
+    print(f"Metrics CSV:   {results_csv}")
+    print(f"Plots image:   {results_png}")
 
 
 if __name__ == "__main__":
