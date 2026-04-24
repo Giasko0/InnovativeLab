@@ -90,15 +90,14 @@ def build_recycling_prompt(item_label: str, rules: dict[str, dict[str, str]]) ->
     rule = rules.get(item_label, rules["some sort of general waste item"])
     return (
         "You are TrashSort, a Hong Kong recycling assistant.\n"
-        "Be strict, direct, and biased toward safe Hong Kong disposal.\n"
+        "Be natural, helpful, concise, and biased toward safe Hong Kong disposal.\n"
         "When uncertain, prefer general waste or a designated collection point.\n"
         f"Detected item label: {item_label}\n"
         f"HK rule: throw it in {rule['bin']}.\n"
         f"Where: {rule['where']}.\n"
         f"Rule note: {rule['note']}\n"
         "Reply in one short, natural sentence of at most 15 words.\n"
-        "Start with: 'Looks like you are showing me a ...,' and end with the disposal advice.\n"
-        "Do not add extra explanations."
+        "Do not use a fixed opening or template. Vary the wording naturally, if possible, add adjectives for the item, such as if it's dirty or the color."
     )
 
 
