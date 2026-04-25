@@ -39,6 +39,13 @@ DEFAULT_WEIGHTS_PATH = Path("datasets/taco_hk_yolo26/runs/train_py/weights/best.
 DEFAULT_WINDOW_WIDTH = 1280
 DEFAULT_WINDOW_HEIGHT = 720
 DEFAULT_REPORT_PATH = Path("inference_report.json")
+BIAS_LABELS = {"some sort of general waste item", "Corrugated carton"}
+MIN_CONF_BY_LABEL = {
+    "some sort of general waste item": 0.55,
+    "Corrugated carton": 0.40,
+}
+NON_BIAS_MIN_CONF = 0.20
+NON_BIAS_MARGIN = 0.08
 
 
 def load_env_file(path: str | Path = ".env") -> None:
@@ -60,9 +67,9 @@ def load_env_file(path: str | Path = ".env") -> None:
 class GroqStreamingConfig:
     api_key: str | None = None
     base_url: str = "https://api.groq.com/openai/v1"
-    vision_model: str = "meta-llama/llama-3.2-11b-vision-instruct"
-    tts_model: str = "playai-tts"
-    tts_voice: str = "Fritz-PlayAI"
+    vision_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    tts_model: str = "canopylabs/orpheus-v1-english"
+    tts_voice: str = "daniel"
     vision_max_tokens: int = 96
     vision_temperature: float = 0.1
     request_timeout_s: float = 45.0
@@ -335,9 +342,9 @@ async def stream_crop_vision_to_tts(
     load_env_file(Path(__file__).with_name(".env"))
     cfg = config or GroqStreamingConfig(
         api_key=os.getenv("GROQ_API_KEY"),
-        vision_model=os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-3.2-11b-vision-instruct"),
-        tts_model=os.getenv("GROQ_TTS_MODEL", "playai-tts"),
-        tts_voice=os.getenv("GROQ_TTS_VOICE", "Fritz-PlayAI"),
+        vision_model=os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct"),
+        tts_model=os.getenv("GROQ_TTS_MODEL", "canopylabs/orpheus-v1-english"),
+        tts_voice=os.getenv("GROQ_TTS_VOICE", "daniel"),
     )
     image_data_url = encode_crop_to_data_url(crop_image)
 
@@ -375,12 +382,31 @@ def pick_detection(result):
     boxes = result.boxes
     if boxes is None or len(boxes) == 0:
         return None
-    idx = int(boxes.conf.argmax().item())
-    box = boxes[idx]
-    xyxy = box.xyxy[0].cpu().numpy().astype(int)
-    label = result.names[int(box.cls.item())]
-    conf = float(box.conf.item())
-    return label, conf, xyxy
+
+    order = boxes.conf.argsort(descending=True).tolist()
+    candidates: list[tuple[str, float, np.ndarray]] = []
+    for idx in order:
+        box = boxes[idx]
+        label = result.names[int(box.cls.item())]
+        conf = float(box.conf.item())
+        xyxy = box.xyxy[0].cpu().numpy().astype(int)
+        candidates.append((label, conf, xyxy))
+
+    top_label, top_conf, top_xyxy = candidates[0]
+    top_threshold = MIN_CONF_BY_LABEL.get(top_label, 0.0)
+
+    if top_label in BIAS_LABELS:
+        for label, conf, xyxy in candidates[1:]:
+            if label in BIAS_LABELS:
+                continue
+            if conf >= max(NON_BIAS_MIN_CONF, top_conf - NON_BIAS_MARGIN):
+                return label, conf, xyxy
+        if top_conf < top_threshold:
+            return None
+
+    if top_conf < MIN_CONF_BY_LABEL.get(top_label, NON_BIAS_MIN_CONF):
+        return None
+    return top_label, top_conf, top_xyxy
 
 
 def crop_frame(frame, xyxy):

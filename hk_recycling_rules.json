@@ -40,9 +40,9 @@
     "note": "keep it dry; remove any plastic handles or tape"
   },
   "Plastic film": {
-    "bin": "general waste bin",
-    "where": "general waste bin",
-    "note": "plastic film is not accepted in normal public recycling bins in HK"
+    "bin": "plastic recycling bin",
+    "where": "recycle only if clean and dry, otherwise goes in general waste",
+    "note": "dirty plastic film shouldn't go in normal public recycling bins in HK, clean it first"
   },
   "Other plastic": {
     "bin": "general waste bin",
