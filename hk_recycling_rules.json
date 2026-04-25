@@ -25,9 +25,9 @@
     "note": "glass is not accepted in normal public bins; use a designated collection point"
   },
   "Drink carton": {
-    "bin": "paper recycling bin or GREEN@COMMUNITY carton point",
-    "where": "public recycling bin or GREEN@COMMUNITY station",
-    "note": "flatten, rinse, and dry first; dedicated carton routes available at GREEN@COMMUNITY stations"
+    "bin": "carton recycling point",
+    "where": "GREEN@COMMUNITY station or other designated carton recycling point",
+    "note": "flatten, rinse, and dry first; beverage cartons are usually handled separately from paper"
   },
   "Corrugated carton": {
     "bin": "paper recycling bin",
@@ -47,12 +47,12 @@
   "Other plastic": {
     "bin": "general waste bin",
     "where": "general waste bin",
-    "note": "when unsure, general waste is the safe choice"
+    "note": "most mixed or unidentified rigid plastics are not accepted in normal public recycling bins"
   },
   "Disposable plastic cup": {
     "bin": "general waste bin",
     "where": "general waste bin",
-    "note": "dirty single-use plastic goes to general waste"
+    "note": "single-use plastic cups are generally not accepted in normal public recycling bins in HK"
   },
   "Food waste": {
     "bin": "food waste collection point",

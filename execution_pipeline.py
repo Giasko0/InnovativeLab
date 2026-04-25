@@ -38,6 +38,7 @@ RULES_PATH = Path(__file__).with_name("hk_recycling_rules.json")
 DEFAULT_WEIGHTS_PATH = Path("datasets/taco_hk_yolo26/runs/train_py/weights/best.pt")
 DEFAULT_WINDOW_WIDTH = 1280
 DEFAULT_WINDOW_HEIGHT = 720
+DEFAULT_REPORT_PATH = Path("inference_report.json")
 
 
 def load_env_file(path: str | Path = ".env") -> None:
@@ -79,6 +80,67 @@ class GroqStreamingConfig:
         return key
 
 
+@dataclass(slots=True)
+class InferenceReport:
+    frames: int = 0
+    detections: int = 0
+    speeches: int = 0
+    runtime_s: float = 0.0
+    frame_capture_ms: float = 0.0
+    yolo_ms: float = 0.0
+    postprocess_ms: float = 0.0
+    speech_first_ms: float = 0.0
+    speech_total_ms: float = 0.0
+    loop_ms: float = 0.0
+    loop_ms_max: float = 0.0
+
+    def add_frame(
+        self,
+        *,
+        capture_ms: float,
+        yolo_ms: float,
+        postprocess_ms: float,
+        loop_ms: float,
+        has_detection: bool,
+    ) -> None:
+        self.frames += 1
+        self.frame_capture_ms += capture_ms
+        self.yolo_ms += yolo_ms
+        self.postprocess_ms += postprocess_ms
+        self.loop_ms += loop_ms
+        self.loop_ms_max = max(self.loop_ms_max, loop_ms)
+        if has_detection:
+            self.detections += 1
+
+    def add_speech(self, *, first_sentence_ms: float | None, total_ms: float) -> None:
+        self.speeches += 1
+        self.speech_total_ms += total_ms
+        if first_sentence_ms is not None:
+            self.speech_first_ms += first_sentence_ms
+
+    def as_dict(self, *, weights: Path, rules_path: Path, source: int) -> dict[str, object]:
+        def avg(total: float, count: int) -> float:
+            return total / count if count else 0.0
+
+        return {
+            "weights": str(weights),
+            "rules_path": str(rules_path),
+            "source": source,
+            "frames": self.frames,
+            "detections": self.detections,
+            "speech_events": self.speeches,
+            "runtime_s": self.runtime_s,
+            "camera_loop_fps": (self.frames / self.runtime_s) if self.runtime_s > 0 else 0.0,
+            "frame_capture_ms_avg": avg(self.frame_capture_ms, self.frames),
+            "yolo_ms_avg": avg(self.yolo_ms, self.frames),
+            "postprocess_ms_avg": avg(self.postprocess_ms, self.frames),
+            "loop_ms_avg": avg(self.loop_ms, self.frames),
+            "loop_ms_max": self.loop_ms_max,
+            "speech_first_ms_avg": avg(self.speech_first_ms, self.speeches),
+            "speech_total_ms_avg": avg(self.speech_total_ms, self.speeches),
+        }
+
+
 def load_recycling_rules(path: str | Path = RULES_PATH) -> dict[str, dict[str, str]]:
     rules_path = Path(path)
     if not rules_path.exists():
@@ -91,13 +153,15 @@ def build_recycling_prompt(item_label: str, rules: dict[str, dict[str, str]]) ->
     return (
         "You are TrashSort, a Hong Kong recycling assistant.\n"
         "Be natural, helpful, concise, and biased toward safe Hong Kong disposal.\n"
+        "Treat the detected item label as fixed and do not contradict it.\n"
+        "Never say the item is not the detected label, and never replace it with another item.\n"
         "When uncertain, prefer general waste or a designated collection point.\n"
         f"Detected item label: {item_label}\n"
         f"HK rule: throw it in {rule['bin']}.\n"
         f"Where: {rule['where']}.\n"
         f"Rule note: {rule['note']}\n"
-        "Reply in one short, natural sentence of at most 15 words.\n"
-        "Do not use a fixed opening or template. Vary the wording naturally, if possible, add adjectives for the item, such as if it's dirty or the color."
+        "Reply in one short, natural sentence of at most 18 words.\n"
+        "Do not use a fixed opening or template."
     )
 
 
@@ -256,6 +320,7 @@ async def stream_crop_vision_to_tts(
     *,
     prompt: str,
     config: GroqStreamingConfig | None = None,
+    timings: dict[str, float] | None = None,
 ) -> str:
     """
     Run Groq Vision->TTS streaming on one detector crop.
@@ -277,6 +342,8 @@ async def stream_crop_vision_to_tts(
     image_data_url = encode_crop_to_data_url(crop_image)
 
     full_text_parts: list[str] = []
+    start = time.perf_counter()
+    first_sentence_recorded = False
 
     async with aiohttp.ClientSession() as session:
         token_stream = stream_vision_tokens(
@@ -294,8 +361,13 @@ async def stream_crop_vision_to_tts(
 
             wav_bytes = await request_tts_wav(session, sentence, cfg)
             await play_wav_non_blocking(wav_bytes)
+            if timings is not None and not first_sentence_recorded:
+                timings["first_sentence_ms"] = (time.perf_counter() - start) * 1000.0
+                first_sentence_recorded = True
             if cfg.min_tts_interval_s > 0:
                 await asyncio.sleep(cfg.min_tts_interval_s)
+    if timings is not None:
+        timings["total_ms"] = (time.perf_counter() - start) * 1000.0
     return " ".join(full_text_parts).strip()
 
 
@@ -402,9 +474,9 @@ def draw_spoken_text(display, text):
         y += line_height
 
 
-def speak_item(crop, label, rules):
+def speak_item(crop, label, rules, *, timings: dict[str, float] | None = None):
     prompt = build_recycling_prompt(label, rules)
-    return asyncio.run(stream_crop_vision_to_tts(crop, prompt=prompt))
+    return asyncio.run(stream_crop_vision_to_tts(crop, prompt=prompt, timings=timings))
 
 
 def parse_args() -> argparse.Namespace:
@@ -419,6 +491,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cooldown", type=float, default=3.5, help="Minimum seconds between speeches")
     parser.add_argument("--window-width", type=int, default=DEFAULT_WINDOW_WIDTH, help="Initial inference window width")
     parser.add_argument("--window-height", type=int, default=DEFAULT_WINDOW_HEIGHT, help="Initial inference window height")
+    parser.add_argument("--report-path", type=Path, default=DEFAULT_REPORT_PATH, help="Where to save the timing report")
     return parser.parse_args()
 
 
@@ -453,25 +526,42 @@ def run_inference(args: argparse.Namespace) -> None:
     spoken_text = ""
     speaking = False
     status_text = "Scanning"
+    report = InferenceReport()
+    report_lock = threading.Lock()
+    run_start = time.perf_counter()
 
     def speak_async(crop, label):
         nonlocal spoken_text, speaking, last_spoken, status_text
+        speech_timings: dict[str, float] = {}
+        speech_start = time.perf_counter()
         try:
-            spoken_text = speak_item(crop, label, rules)
+            spoken_text = speak_item(crop, label, rules, timings=speech_timings)
         except RuntimeError as exc:
             spoken_text = f"Inference/TTS error: {exc}"
         finally:
             last_spoken = time.time()
             speaking = False
             status_text = "Ready"
+            with report_lock:
+                report.add_speech(
+                    first_sentence_ms=speech_timings.get("first_sentence_ms"),
+                    total_ms=(speech_timings.get("total_ms") or ((time.perf_counter() - speech_start) * 1000.0)),
+                )
 
     try:
         while True:
+            loop_start = time.perf_counter()
+            capture_start = loop_start
             ok, frame = cap.read()
+            capture_ms = (time.perf_counter() - capture_start) * 1000.0
             if not ok:
                 break
 
+            yolo_start = time.perf_counter()
             result = model(frame, conf=args.conf, imgsz=args.imgsz, verbose=False)[0]
+            yolo_ms = (time.perf_counter() - yolo_start) * 1000.0
+
+            post_start = time.perf_counter()
             det = pick_detection(result)
             display = result.plot()
             draw_status_bar(display, status_text, stable_count)
@@ -499,12 +589,41 @@ def run_inference(args: argparse.Namespace) -> None:
                         threading.Thread(target=speak_async, args=(crop, label), daemon=True).start()
 
             draw_spoken_text(display, spoken_text)
+            postprocess_ms = (time.perf_counter() - post_start) * 1000.0
             cv2.imshow(window_name, display)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            should_exit = (cv2.waitKey(1) & 0xFF) == ord("q")
+            with report_lock:
+                report.add_frame(
+                    capture_ms=capture_ms,
+                    yolo_ms=yolo_ms,
+                    postprocess_ms=postprocess_ms,
+                    loop_ms=(time.perf_counter() - loop_start) * 1000.0,
+                    has_detection=det is not None,
+                )
+            if should_exit:
                 break
     finally:
         cap.release()
         cv2.destroyAllWindows()
+        report.runtime_s = time.perf_counter() - run_start
+        summary = report.as_dict(weights=weights, rules_path=RULES_PATH, source=args.source)
+        report_path = args.report_path.resolve()
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+        print("\nInference report")
+        print(f"Output: {report_path}")
+        print(f"Frames: {summary['frames']} | Detections: {summary['detections']} | Speeches: {summary['speech_events']}")
+        print(
+            f"Frame capture avg: {summary['frame_capture_ms_avg']:.1f} ms | "
+            f"YOLO avg: {summary['yolo_ms_avg']:.1f} ms | "
+            f"Post avg: {summary['postprocess_ms_avg']:.1f} ms"
+        )
+        print(
+            f"Speech first avg: {summary['speech_first_ms_avg']:.1f} ms | "
+            f"Speech total avg: {summary['speech_total_ms_avg']:.1f} ms"
+        )
+        print(f"Loop FPS: {summary['camera_loop_fps']:.2f} | Loop max: {summary['loop_ms_max']:.1f} ms")
 
 
 def main() -> None:

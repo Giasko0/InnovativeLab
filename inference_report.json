@@ -1,0 +1,17 @@
+{
+  "weights": "/home/giasko/Scrivania/Universit\u00e0/HKBU/COMP7065 - Innovative Laboratory/Mini-project/Code/Alessandro/train5/weights/best.pt",
+  "rules_path": "/home/giasko/Scrivania/Universit\u00e0/HKBU/COMP7065 - Innovative Laboratory/Mini-project/Code/hk_recycling_rules.json",
+  "source": 0,
+  "frames": 811,
+  "detections": 179,
+  "speech_events": 3,
+  "runtime_s": 46.60436593600025,
+  "camera_loop_fps": 17.401803108183277,
+  "frame_capture_ms_avg": 0.6908158322961805,
+  "yolo_ms_avg": 51.41937097042051,
+  "postprocess_ms_avg": 0.594179889027666,
+  "loop_ms_avg": 57.384677246576956,
+  "loop_ms_max": 392.5132020012825,
+  "speech_first_ms_avg": 5983.19903966573,
+  "speech_total_ms_avg": 6184.2970656665175
+}
