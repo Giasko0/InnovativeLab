@@ -1,4 +1,4 @@
-# TrashSort (2-file pipeline + benchmark)
+# TrashSort
 
 ## 1. Install
 
@@ -16,7 +16,7 @@ python training_pipeline.py
 
 Output model (default):
 
-`datasets/taco_hk_yolo26/runs/train_py/weights/best.pt`
+`<output-dir>/runs/train_py/weights/best.pt`
 
 ## 3. Run inference demo
 
@@ -43,20 +43,3 @@ Optional custom weights:
 ```bash
 python execution_pipeline.py --weights /path/to/best.pt
 ```
-
-## 4. Compare model quality
-
-Compares:
-- reference notebook model: `Alessandro/train5/weights/best.pt`
-- your model: `datasets/taco_hk_yolo26/runs/train_py/weights/best.pt`
-- same validation set: `datasets/taco_hk_yolo26/data.yaml`
-
-Run:
-
-```bash
-python compare_models.py
-```
-
-Output report:
-
-`model_comparison.json`
