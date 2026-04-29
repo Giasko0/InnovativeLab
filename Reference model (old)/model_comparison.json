@@ -1,0 +1,42 @@
+{
+  "data_yaml": "/home/giasko/Scrivania/Universit\u00e0/HKBU/COMP7065 - Innovative Laboratory/Mini-project/Code/datasets/taco_hk_yolo26/data.yaml",
+  "imgsz": 416,
+  "batch": 32,
+  "device": "cpu",
+  "plots": true,
+  "plots_dir": "validation_plots",
+  "reference": {
+    "weights": "/home/giasko/Scrivania/Universit\u00e0/HKBU/COMP7065 - Innovative Laboratory/Mini-project/Code/Alessandro/train5/weights/best.pt",
+    "save_dir": "/home/giasko/Scrivania/Universit\u00e0/HKBU/COMP7065 - Innovative Laboratory/Mini-project/Code/runs/detect/validation_plots/Alessandro",
+    "classes": 60,
+    "precision": 0.020904745544154585,
+    "recall": 0.18527752522879096,
+    "map50": 0.014694506323922349,
+    "map50_95": 0.009403992002734417,
+    "fitness": 0.009403992002734417,
+    "speed_ms": {
+      "preprocess": 1.0891507671072909,
+      "inference": 39.300363890417856,
+      "loss": 6.255478395247985e-05,
+      "postprocess": 0.4749218493362941
+    }
+  },
+  "candidate": {
+    "weights": "/home/giasko/Scrivania/Universit\u00e0/HKBU/COMP7065 - Innovative Laboratory/Mini-project/Code/runs/train_py81/weights/best.pt",
+    "save_dir": "/home/giasko/Scrivania/Universit\u00e0/HKBU/COMP7065 - Innovative Laboratory/Mini-project/Code/runs/detect/validation_plots/train_py81",
+    "classes": 15,
+    "precision": 0.2955730130460253,
+    "recall": 0.14046746637299165,
+    "map50": 0.12284561394521178,
+    "map50_95": 0.09692340201679556,
+    "fitness": 0.09692340201679556,
+    "speed_ms": {
+      "preprocess": 1.101591743189265,
+      "inference": 40.43576480478506,
+      "loss": 4.014725151411194e-05,
+      "postprocess": 0.28868925341631024
+    }
+  },
+  "winner_by_map50_95": "candidate",
+  "delta_map50_95_candidate_minus_reference": 0.08751941001406113
+}
